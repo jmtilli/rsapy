@@ -27,9 +27,10 @@ def myImportCert(pem):
 
 def myImportKey(pem):
   key = RSA.importKey(pem, passphrase=None)
-  dp = key.d % (key.p-1)
-  dq = key.d % (key.q-1)
-  return MyRsaPrivKey(dp=dp, dq=dq, qinv=key.u, p=key.p, q=key.q,
+  p, q = key.q, key.p
+  dp = key.d % (p-1)
+  dq = key.d % (q-1)
+  return MyRsaPrivKey(dp=dp, dq=dq, qinv=key.u, p=p, q=q,
                       e=key.e, d=key.d, n=key.n)
   
 with open("../http2/key.pem") as f:
@@ -73,15 +74,11 @@ class MyRsaPubKey(object):
 
 class MyRsaPrivKey(object):
   def __init__(this, dp, dq, qinv, p, q, e, d, n):
-    #this.dp = dp
-    this.dp = dq
-    #this.dq = dq
-    this.dq = dp
+    this.dp = dp
+    this.dq = dq
     this.qinv = qinv
-    #this.p = p
-    this.p = q
-    #this.q = q
-    this.q = p
+    this.p = p
+    this.q = q
     this.e = e
     this.d = d
     this.n = n
