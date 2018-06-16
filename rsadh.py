@@ -70,23 +70,38 @@ class MyRsaPubKey(object):
 
 class MyRsaPrivKey(object):
   def __init__(this, dp, dq, qinv, p, q, e, d, n):
-    this.dp = dp
-    this.dq = dq
+    #this.dp = dp
+    this.dp = dq
+    #this.dq = dq
+    this.dq = dp
     this.qinv = qinv
-    this.p = p
-    this.q = q
+    #this.p = p
+    this.p = q
+    #this.q = q
+    this.q = p
     this.e = e
     this.d = d
     this.n = n
+    assert this.dp == this.d % (this.p - 1)
+    assert this.dq == this.d % (this.q - 1)
+    assert (this.qinv * this.q) % this.p == 1
   def signDecrypt(this, c):
     m1 = modexp(c, this.dp, this.p)
     m2 = modexp(c, this.dq, this.q)
     if m1 < m2:
-      h = (this.qinv*((m1 + ((this.q+this.p-1)/this.p)*this.p)-m2)) % this.p
+      print "Alternative path"
+      toadd = ((this.q+this.p-1)/this.p)*this.p
+      assert m1 + toadd >= m2
+      h = (this.qinv*((m1 + toadd) - m2)) % this.p
+      #h = (this.qinv * (m1-m2)) % this.p
     else:
       h = (this.qinv * (m1-m2)) % this.p
     m = m2 + h * this.q
+    #assert m%this.n == modexp(c, this.d, this.n)
+    #assert m == modexp(c, this.d, this.n)
     return m
+    return (this.n*100 + m) % this.n
+    return modexp(c, this.d, this.n)
 
 def longToBytes(val):
   w = long(val).bit_length()
@@ -204,3 +219,30 @@ m2 = myPriv.signDecrypt(c)
 t2 = time.time()
 print (t2 - t1)*1e6, "us"
 assert m == m2
+
+def pkcs1pad(key, msg, hashfn=SHA256):
+  Ts = {SHA256: longToBytes(0x3031300d060960864801650304020105000420)}
+  T = Ts[hashfn]
+  hasher = hashfn.new()
+  hasher.update(msg)
+  hashbytes = hasher.digest()
+  prefix = "\x00\x01"
+  suffix = "\x00" + T + hashbytes
+  bitlen = long(key.n).bit_length()
+  padcnt = bitlen/8 - len(prefix) - len(suffix)
+  bitinteger = prefix + padcnt*"\xFF"+suffix
+  return bitinteger
+
+def pkcs1sign(key, msg, hashfn=SHA256):
+  return longToBytes(key.signDecrypt(bytesToLong(pkcs1pad(key, msg, hashfn))))
+
+def pkcs1verify(pub, signature, msg, hashfn=SHA256):
+  bs = longToBytes(pub.verifyEncrypt(bytesToLong(signature)))
+  integer = pub.verifyEncrypt(bytesToLong(signature))
+  assert integer == bytesToLong(pkcs1pad(pub, msg, hashfn))
+
+msg = "foo bar baz"
+assert pkcs1pad(myPub, msg) == pkcs1pad(myPriv, msg)
+
+signature = pkcs1sign(myPriv, msg)
+pkcs1verify(myPub, signature, msg)
