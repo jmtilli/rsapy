@@ -1,4 +1,5 @@
 import random
+import time
 import binascii
 from Crypto.Cipher import AES
 
@@ -45,38 +46,13 @@ def clmul64inv(a,b):
   reshi = 0
   for k in xrange(64):
     if a&1:
-      reslo ^= (b<<64)>>(63-k) >> 64
-      reshi ^= (b<<64)>>(63-k) & ((1<<64)-1)
+      tmpval = ((b<<64)>>(63-k))
+      reslo ^= tmpval >> 64
+      reshi ^= tmpval & ((1<<64)-1)
       #reslo ^= (b<<64)>>(k) >> 64
       #reshi ^= (b<<64)>>(k) & ((1<<64)-1)
     a >>= 1
   return reshi, reslo
-
-x = random.randrange(1<<64)
-y = random.randrange(1<<64)
-lo,hi = clmul64(bitinv64(x),bitinv64(y))
-#print bitinv64(hi), bitinv64(lo)
-#print clmul64inv(x,y)
-assert clmul64inv(x,y) == (bitinv64(hi), bitinv64(lo))
-
-a = (1<<62) + (1<<58) + (1<<56)
-b = (1<<62) + (1<<61) + (1<<59) + (1<<56)
-d,c = clmul64inv(a,b)
-assert c == (1<<(63-2)) + (1<<(63-3)) + (1<<(63-5)) + (1<<(63-6)) + (1<<(63-7)) + (1<<(63-11)) + (1<<(63-12)) + (1<<(63-14))
-assert d == 0
-
-a = (1<<1) + (1<<5) + (1<<7)
-b = (1<<1) + (1<<2) + (1<<4) + (1<<7)
-c,d = clmul64(a,b)
-assert d == 0
-assert c == (1<<2) + (1<<3) + (1<<5) + (1<<6) + (1<<7) + (1<<11) + (1<<12) + (1<<14)
-
-a <<= 55
-b <<= 55
-c,d = clmul64(a,b)
-x = (1<<2) + (1<<3) + (1<<5) + (1<<6) + (1<<7) + (1<<11) + (1<<12) + (1<<14)
-assert c == 0
-assert d == (x<<(55+55))>>64
 
 class Num128(object):
   @staticmethod
@@ -204,72 +180,154 @@ class Num128(object):
   def __str__(self):
     return "Num128(" + str(self.to_long()) + ")"
 
+def unit():
+  x = random.randrange(1<<64)
+  y = random.randrange(1<<64)
+  lo,hi = clmul64(bitinv64(x),bitinv64(y))
+  #print bitinv64(hi), bitinv64(lo)
+  #print clmul64inv(x,y)
+  assert clmul64inv(x,y) == (bitinv64(hi), bitinv64(lo))
+  #
+  a = (1<<62) + (1<<58) + (1<<56)
+  b = (1<<62) + (1<<61) + (1<<59) + (1<<56)
+  d,c = clmul64inv(a,b)
+  assert c == (1<<(63-2)) + (1<<(63-3)) + (1<<(63-5)) + (1<<(63-6)) + (1<<(63-7)) + (1<<(63-11)) + (1<<(63-12)) + (1<<(63-14))
+  assert d == 0
+  #
+  a = (1<<1) + (1<<5) + (1<<7)
+  b = (1<<1) + (1<<2) + (1<<4) + (1<<7)
+  c,d = clmul64(a,b)
+  assert d == 0
+  assert c == (1<<2) + (1<<3) + (1<<5) + (1<<6) + (1<<7) + (1<<11) + (1<<12) + (1<<14)
+  #
+  a <<= 55
+  b <<= 55
+  c,d = clmul64(a,b)
+  x = (1<<2) + (1<<3) + (1<<5) + (1<<6) + (1<<7) + (1<<11) + (1<<12) + (1<<14)
+  assert c == 0
+  assert d == (x<<(55+55))>>64
+  #
+  r = random.randrange(1<<128)
+  n = Num128(r)
+  lo,rm = n.shrrm(5)
+  assert lo.to_long() == r >> 5
+  #
+  #
+  a,b = Num128(1).clmulinv(Num128(1))
+  #print hex(b.modpolyinv(a).to_long())
+  assert b.modpolyinv(a).to_long() == 0xe6080000000000000000000000000003L
+  a,b = Num128(0x12345).clmulinv(Num128(0x54321))
+  assert b.modpolyinv(a).to_long() == 0x1b280000000000000000000ccb362c4eL
+  #raise SystemExit()
+  #
+  assert Num128(0x12345).clmodmulinv(Num128(0x54321)).to_long() == 0x1b280000000000000000000ccb362c4eL
+  #raise SystemExit()
+  #
+  #
+  #
+  #
+  #
+  a = Num128(1,2) # (2<<64) | 1, x^127 + x^62
+  b = Num128(4,8) # (8<<64) | 4, x^125 + x^60
+  # a*b = x^122 + x^252
+  # a*b = 32, 8
+  l,h = a.clmulinv(b)
+  assert h.to_long() == 32
+  assert l.to_long() == 8
+  #
+  a = Num128(1,2) # (2<<64) | 1, x^127 + x^62
+  b = Num128(4,16) # (16<<64) | 4, x^125 + x^59
+  # a*b = x^121 + x^186 + x^187 + x^252
+  # a*b = 32, 8
+  l,h = a.clmulinv(b)
+  #print hex(l.to_long()),hex(h.to_long())
+  assert h.to_long() == 0x40
+  assert l.to_long() == 0x300000000000000008
+  #
+  #
+  x = Num128.rand()
+  y = Num128.rand()
+  rx,ry = x.clmul(y)
+  rx2,ry2 = clmul128(x.to_long(), y.to_long())
+  assert rx.to_long() == rx2
+  assert ry.to_long() == ry2
+  #
+  #
+  #
+  x = Num128.rand()
+  y = Num128.rand()
+  xinv = x.inv()
+  yinv = y.inv()
+  rx,ry = x.clmulinv(y)
+  #rx2,ry2 = clmul128inv(x.to_long(), y.to_long())
+  rx2,ry2 = clmul128(xinv.to_long(), yinv.to_long())
+  #
+  assert ry.to_long() == bitinv128(rx2)
+  assert rx.to_long() == bitinv128(ry2)
+  #
+  rx2,ry2 = clmul128inv(x.to_long(), y.to_long())
+  #
+  #print hex(rx.to_long()), hex(ry.to_long())
+  #print hex(rx2), hex(ry2)
+  assert rx.to_long() == rx2
+  assert ry.to_long() == ry2
+  #
+  global poly
+  poly = [1]+120*[0]+[1]+4*[0]+[1,1,1]
+  hashkey = [random.randrange(2) for x in range(128)]
+  #
+  H = Num128(0b11101000000100110100010000111101111101100011011000011101011000001110001010010100111101111110011111000001101100000011000101101110)
+  v = 3*8
+  u = 3*8
+  A = [Num128(bytesToLong("foo" + 13*"\x00"))]
+  C = [Num128(bytesToLong("bar" + 13*"\x00"))]
+  #print bin(A[0].to_long())
+  #print bin(C[0].to_long())
+  #print bin(fastghash(H, A, C, v, u).to_long())
+  #print 'clmodmul', bin(A[0].clmodmul(C[0]).to_long())
+  #print A[0].lo
+  #print C[0].lo
+  x,y = clmul64(A[0].lo, C[0].lo)
+  #print x
+  #
+  #
+  #
+  As,v = packetize("foo")
+  Cs,u = packetize("bar")
+  #print '0b' + ''.join(str(x) for x in As[0])
+  #print '0b' + ''.join(str(x) for x in Cs[0])
+  Hs = [1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 1, 1, 1, 0]
+  #print '0b' + ''.join(str(x) for x in ghash(Hs, As, Cs, v, u))
+  #print 'modpoly,modmul', '0b' + ''.join(str(x) for x in modpoly(modmul(As[0],Cs[0]), poly))
+  #
+  #
+  #val = [1] + 128*[0]
+  #assert modpoly(val, poly) == 120*[0]+[1]+4*[0]+[1,1,1]
+  #
+  #val = [1] + 129*[0]
+  #assert modpoly(val, poly) == 119*[0]+[1]+4*[0]+[1,1,1] + [0]
+  #
+  #val = [1,1] + 128*[0]
+  #assert modpoly(val, poly) == 119*[0]+[1,1]+3*[0]+[1,0,0] + [1]
+  #
+  assert modmul([1,1,1], [1,1,1]) == [1,0,1,0,1]
+  #
+  lo = Num128(0)
+  hi = Num128(1)
+  assert lo.modpoly(hi) == Num128((1<<7) | (1<<2) | (1<<1) | (1<<0))
+  #
+  lo = Num128(0)
+  hi = Num128(2)
+  assert lo.modpoly(hi) == Num128((1<<8) | (1<<3) | (1<<2) | (1<<1))
+  #
+  lo = Num128(0)
+  hi = Num128(3)
+  assert lo.modpoly(hi) == Num128((1<<8) | (1<<7) | (1<<3) | (1<<0))
+  #
+  assert Num128(7).clmodmul(Num128(7)).to_long() == 21
 
 
-a,b = Num128(1).clmulinv(Num128(1))
-#print hex(b.modpolyinv(a).to_long())
-assert b.modpolyinv(a).to_long() == 0xe6080000000000000000000000000003L
-a,b = Num128(0x12345).clmulinv(Num128(0x54321))
-assert b.modpolyinv(a).to_long() == 0x1b280000000000000000000ccb362c4eL
-#raise SystemExit()
 
-assert Num128(0x12345).clmodmulinv(Num128(0x54321)).to_long() == 0x1b280000000000000000000ccb362c4eL
-#raise SystemExit()
-
-
-
-
-
-a = Num128(1,2) # (2<<64) | 1, x^127 + x^62
-b = Num128(4,8) # (8<<64) | 4, x^125 + x^60
-# a*b = x^122 + x^252
-# a*b = 32, 8
-l,h = a.clmulinv(b)
-assert h.to_long() == 32
-assert l.to_long() == 8
-
-a = Num128(1,2) # (2<<64) | 1, x^127 + x^62
-b = Num128(4,16) # (16<<64) | 4, x^125 + x^59
-# a*b = x^121 + x^186 + x^187 + x^252
-# a*b = 32, 8
-l,h = a.clmulinv(b)
-#print hex(l.to_long()),hex(h.to_long())
-assert h.to_long() == 0x40
-assert l.to_long() == 0x300000000000000008
-
-
-x = Num128.rand()
-y = Num128.rand()
-rx,ry = x.clmul(y)
-rx2,ry2 = clmul128(x.to_long(), y.to_long())
-assert rx.to_long() == rx2
-assert ry.to_long() == ry2
-
-
-
-x = Num128.rand()
-y = Num128.rand()
-xinv = x.inv()
-yinv = y.inv()
-rx,ry = x.clmulinv(y)
-#rx2,ry2 = clmul128inv(x.to_long(), y.to_long())
-rx2,ry2 = clmul128(xinv.to_long(), yinv.to_long())
-
-assert ry.to_long() == bitinv128(rx2)
-assert rx.to_long() == bitinv128(ry2)
-
-rx2,ry2 = clmul128inv(x.to_long(), y.to_long())
-
-#print hex(rx.to_long()), hex(ry.to_long())
-#print hex(rx2), hex(ry2)
-assert rx.to_long() == rx2
-assert ry.to_long() == ry2
-
-
-    
-global poly
-poly = [1]+120*[0]+[1]+4*[0]+[1,1,1]
-hashkey = [random.randrange(2) for x in range(128)]
     
 
 def modadd(a, b):
@@ -290,31 +348,6 @@ def modpoly(value, poly):
     if value[-128-n-1]:
       val128 = modadd(val128, poly[1+n:] + n*[0])
   return val128
-
-#val = [1] + 128*[0]
-#assert modpoly(val, poly) == 120*[0]+[1]+4*[0]+[1,1,1]
-
-#val = [1] + 129*[0]
-#assert modpoly(val, poly) == 119*[0]+[1]+4*[0]+[1,1,1] + [0]
-
-#val = [1,1] + 128*[0]
-#assert modpoly(val, poly) == 119*[0]+[1,1]+3*[0]+[1,0,0] + [1]
-
-assert modmul([1,1,1], [1,1,1]) == [1,0,1,0,1]
-
-lo = Num128(0)
-hi = Num128(1)
-assert lo.modpoly(hi) == Num128((1<<7) | (1<<2) | (1<<1) | (1<<0))
-
-lo = Num128(0)
-hi = Num128(2)
-assert lo.modpoly(hi) == Num128((1<<8) | (1<<3) | (1<<2) | (1<<1))
-
-lo = Num128(0)
-hi = Num128(3)
-assert lo.modpoly(hi) == Num128((1<<8) | (1<<7) | (1<<3) | (1<<0))
-
-assert Num128(7).clmodmul(Num128(7)).to_long() == 21
 
 def fastghash(H,A,C,v,u):
   X = Num128(0)
@@ -394,31 +427,6 @@ def longToBytes(val):
 def bytesToLong(val):
   return long(binascii.hexlify(val), 16)
 
-H = Num128(0b11101000000100110100010000111101111101100011011000011101011000001110001010010100111101111110011111000001101100000011000101101110)
-v = 3*8
-u = 3*8
-A = [Num128(bytesToLong("foo" + 13*"\x00"))]
-C = [Num128(bytesToLong("bar" + 13*"\x00"))]
-#print bin(A[0].to_long())
-#print bin(C[0].to_long())
-#print bin(fastghash(H, A, C, v, u).to_long())
-#print 'clmodmul', bin(A[0].clmodmul(C[0]).to_long())
-#print A[0].lo
-#print C[0].lo
-x,y = clmul64(A[0].lo, C[0].lo)
-#print x
-
-
-
-As,v = packetize("foo")
-Cs,u = packetize("bar")
-#print '0b' + ''.join(str(x) for x in As[0])
-#print '0b' + ''.join(str(x) for x in Cs[0])
-Hs = [1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 1, 0, 1, 1, 1, 0]
-#print '0b' + ''.join(str(x) for x in ghash(Hs, As, Cs, v, u))
-#print 'modpoly,modmul', '0b' + ''.join(str(x) for x in modpoly(modmul(As[0],Cs[0]), poly))
-
-
 """
     Under this the license is the following:
 
@@ -469,6 +477,8 @@ if __name__ == '__main__':
 
     #print('plaintext:', hex(bytesToLong(plaintext)))
 
+    t1 = time.time()
+
     ecb = AES.new(longToBytes(master_key), AES.MODE_ECB)
 
     ctr = (init_value << 32) + 1
@@ -497,4 +507,10 @@ if __name__ == '__main__':
       assert lcp == exp_lcp
       #print "OK!"
     assert fastghash(Num128(auth_key), authpackets, cipherpackets, v, u).xor(Num128(first)).to_long() == auth_tag
+    t2 = time.time()
     print "OK!"
+    print (t2-t1)*1e3, "msec for encryption"
+    t3 = time.time()
+    unit()
+    t4 = time.time()
+    print (t4-t3)*1e3, "msec for unit test"
