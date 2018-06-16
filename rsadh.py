@@ -1,8 +1,11 @@
 import Crypto
 from Crypto.PublicKey import RSA
 from Crypto.Signature import PKCS1_v1_5
-from Crypto.Hash import SHA256
+from Crypto.Hash import SHA256, SHA384, SHA512
+from hashlib import sha1
 from Crypto import Random
+
+SHA1 = sha1
 
 from Crypto.Util.asn1 import DerSequence
 import binascii
@@ -220,10 +223,15 @@ t2 = time.time()
 print (t2 - t1)*1e6, "us"
 assert m == m2
 
-def pkcs1pad(key, msg, hashfn=SHA256):
-  Ts = {SHA256: longToBytes(0x3031300d060960864801650304020105000420)}
+def pkcs1pad(key, msg, hashfn=SHA256.new):
+  Ts = {
+        SHA1: longToBytes(0x3021300906052b0e03021a05000414),
+        SHA256.new: longToBytes(0x3031300d060960864801650304020105000420),
+        SHA384.new: longToBytes(0x3041300d060960864801650304020205000430),
+        SHA512.new: longToBytes(0x3051300d060960864801650304020305000440),
+       }
   T = Ts[hashfn]
-  hasher = hashfn.new()
+  hasher = hashfn()
   hasher.update(msg)
   hashbytes = hasher.digest()
   prefix = "\x00\x01"
@@ -233,10 +241,10 @@ def pkcs1pad(key, msg, hashfn=SHA256):
   bitinteger = prefix + padcnt*"\xFF"+suffix
   return bitinteger
 
-def pkcs1sign(key, msg, hashfn=SHA256):
+def pkcs1sign(key, msg, hashfn=SHA256.new):
   return longToBytes(key.signDecrypt(bytesToLong(pkcs1pad(key, msg, hashfn))))
 
-def pkcs1verify(pub, signature, msg, hashfn=SHA256):
+def pkcs1verify(pub, signature, msg, hashfn=SHA256.new):
   bs = longToBytes(pub.verifyEncrypt(bytesToLong(signature)))
   integer = pub.verifyEncrypt(bytesToLong(signature))
   assert integer == bytesToLong(pkcs1pad(pub, msg, hashfn))
@@ -246,3 +254,15 @@ assert pkcs1pad(myPub, msg) == pkcs1pad(myPriv, msg)
 
 signature = pkcs1sign(myPriv, msg)
 pkcs1verify(myPub, signature, msg)
+
+print "SHA256 works"
+
+signature = pkcs1sign(myPriv, msg, hashfn = SHA1)
+pkcs1verify(myPub, signature, msg, hashfn = SHA1)
+
+print "SHA1 works"
+
+signature = pkcs1sign(myPriv, msg, hashfn = SHA512.new)
+pkcs1verify(myPub, signature, msg, hashfn = SHA512.new)
+
+print "SHA512 works"
