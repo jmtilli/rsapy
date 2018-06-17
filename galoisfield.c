@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <limits.h>
+#include <sys/time.h>
 
 typedef unsigned __int128 uint128_t;
 
@@ -31,7 +32,8 @@ void gf_tbl_populate(struct GfTbl *tbl, uint64_t multiplier)
   }
 }
 
-uint128_t clmul64(uint64_t a, struct GfTbl *b_tbl)
+static inline uint128_t clmul64(uint64_t a, struct GfTbl *b_tbl)
+//__attribute__((noinline)) static uint128_t clmul64(uint64_t a, struct GfTbl *b_tbl)
 {
   uint128_t res = 0;
   int k;
@@ -44,7 +46,7 @@ uint128_t clmul64(uint64_t a, struct GfTbl *b_tbl)
   return res;
 }
 
-void clmul128(uint128_t *rlo, uint128_t *rhi,
+__attribute__((noinline)) void clmul128(uint128_t *rlo, uint128_t *rhi,
               uint128_t a, struct GfTbl *b_lo, struct GfTbl *b_hi)
 {
   uint128_t v1 = clmul64(a&UINT64_MAX, b_lo);
@@ -55,7 +57,7 @@ void clmul128(uint128_t *rlo, uint128_t *rhi,
   *rhi = (v2>>64) ^ (v3>>64) ^ v4;
 }
 
-uint128_t modpoly(uint128_t lo, uint128_t hi)
+__attribute__((noinline)) static uint128_t modpoly(uint128_t lo, uint128_t hi)
 {
   uint128_t lo1, lo2, lo3, lo4, rm1, rm2, rm3, rm4, los, rms;
   while (hi != 0)
@@ -63,20 +65,21 @@ uint128_t modpoly(uint128_t lo, uint128_t hi)
     lo1 = hi>>7;
     lo2 = hi>>2;
     lo3 = hi>>1;
-    lo4 = hi>>0;
-    rm1 = ((hi<<64)>>7) & UINT64_MAX;
-    rm2 = ((hi<<64)>>2) & UINT64_MAX;
-    rm3 = ((hi<<64)>>1) & UINT64_MAX;
-    rm4 = ((hi<<64)>>0) & UINT64_MAX;
+    lo4 = hi;
+    rm1 = (hi<<(64-7)) & UINT64_MAX;
+    rm2 = (hi<<(64-2)) & UINT64_MAX;
+    rm3 = (hi<<(64-1)) & UINT64_MAX;
+    //rm4 = (hi<<(64-0)) & UINT64_MAX;
     los = lo1^lo2^lo3^lo4;
-    rms = rm1^rm2^rm3^rm4;
+    //rms = rm1^rm2^rm3^rm4;
+    rms = rm1^rm2^rm3;
     lo = lo ^ los;
     hi = rms<<64;
   }
   return lo;
 }
 
-uint128_t clmodmul128(uint128_t a, struct GfTbl *b_lo, struct GfTbl *b_hi)
+static inline uint128_t clmodmul128(uint128_t a, struct GfTbl *b_lo, struct GfTbl *b_hi)
 {
   uint128_t rlo, rhi;
   clmul128(&rlo, &rhi, a, b_lo, b_hi);
@@ -97,6 +100,31 @@ uint128_t clmodmul128slow(uint128_t a, uint128_t b)
   gf_tbl_populate(&b_lo, b);
   gf_tbl_populate(&b_hi, b>>64);
   return clmodmul128(a, &b_lo, &b_hi);
+}
+
+void clmodmul128perf(void)
+{
+  struct GfTbl b_lo, b_hi;
+  int i;
+  struct timeval tv1, tv2;
+  volatile uint128_t a;
+  uint128_t b;
+  volatile uint128_t datum;
+  uint64_t blo = 0x123456787654321ULL, bhi = 0x876543212345678ULL;
+  uint64_t dlo = 0x12345678765432ULL, dhi = 0x87654321234567ULL;
+  a = 0;
+  b = (((uint128_t)bhi)<<64) | blo;
+  datum = (((uint128_t)dhi)<<64) | dlo;
+  gf_tbl_populate(&b_lo, b);
+  gf_tbl_populate(&b_hi, b>>64);
+  gettimeofday(&tv1, NULL);
+  for (i = 0; i < 100*1000*1000; i++)
+  {
+    a ^= datum;
+    a = clmodmul128(a, &b_lo, &b_hi);
+  }
+  gettimeofday(&tv2, NULL);
+  printf("modmul: %g Gbps\n", 100*1e6*128 / (((tv2.tv_sec-tv1.tv_sec)*1e6 + tv2.tv_usec - tv1.tv_usec)/1e6) / 1e9);
 }
 
 void clmul_test()
@@ -192,6 +220,53 @@ void clmul_test()
   printf("ok\n");
 }
 
+void evp_perf(void)
+{
+  EVP_CIPHER_CTX *ctx;
+  int ciphertext_len, len;
+  char aad[] =
+    "\xfe\xed\xfa\xce\xde\xad\xbe\xef"
+    "\xfe\xed\xfa\xce\xde\xad\xbe\xef"
+    "\xab\xad\xda\xd2";
+  char iv[] = "\xca\xfe\xba\xbe\xfa\xce\xdb\xad\xde\xca\xf8\x88";
+  char key[] =
+    "\xfe\xff\xe9\x92\x86\x65\x73\x1c\x6d\x6a\x8f\x94\x67\x30\x83\x08";
+  char ciphertext[1024] = {0};
+  char plaintext[] = "\xd9\x31\x32\x25\xf8\x84\x06\xe5"
+                     "\xa5\x59\x09\xc5\xaf\xf5\x26\x9a"
+                     "\x86\xa7\xa9\x53\x15\x34\xf7\xda"
+                     "\x2e\x4c\x30\x3d\x8a\x31\x8a\x72"
+                     "\x1c\x3c\x0c\x95\x95\x68\x09\x53"
+                     "\x2f\xcf\x0e\x24\x49\xa6\xb5\x25";
+#if 0
+                     "\xb1\x6a\xed\xf5\xaa\x0d\xe6\x57"
+                     "\xba\x63\x7b\x39";
+#endif
+  int plaintext_len = sizeof(plaintext) - 1;
+  int aad_len = sizeof(aad) - 1;
+  int iv_len = sizeof(iv) - 1;
+  char tag[16] = {0};
+  int i;
+  struct timeval tv1, tv2;
+
+  if(!(ctx = EVP_CIPHER_CTX_new())) abort();
+  if(1 != EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), NULL, NULL, NULL)) abort();
+  if(1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_IVLEN, iv_len, NULL)) abort();
+  if(1 != EVP_EncryptInit_ex(ctx, NULL, NULL, key, iv)) abort();
+  if(1 != EVP_EncryptUpdate(ctx, NULL, &len, aad, aad_len)) abort();
+  gettimeofday(&tv1, NULL);
+  for (i = 0; i < 1000*1000; i++)
+  {
+    if(1 != EVP_EncryptUpdate(ctx, ciphertext, &len, plaintext, plaintext_len)) abort();
+    ciphertext_len = len;
+  }
+  gettimeofday(&tv2, NULL);
+  printf("%g Gbps\n", 1e6*plaintext_len*8 / (((tv2.tv_sec-tv1.tv_sec)*1e6 + tv2.tv_usec - tv1.tv_usec)/1e6) / 1e9);
+  if(1 != EVP_EncryptFinal_ex(ctx, ciphertext + len, &len)) abort();
+  ciphertext_len += len;
+  if(1 != EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, tag)) abort();
+}
+
 int main(int argc, char **argv)
 {
   EVP_CIPHER_CTX *ctx;
@@ -260,6 +335,10 @@ int main(int argc, char **argv)
   }
 
   clmul_test();
+
+  evp_perf();
+
+  clmodmul128perf();
 
   return 0;
 }
