@@ -41,6 +41,29 @@ def bitinv64(x):
 def bitinv128(x):
   return sum(((x>>(127-k))&1)<<k for k in xrange(128))
 
+
+def clmul64ctx(b):
+  fasttbltmp = 256*[0]
+  for origa in xrange(256):
+    fasttbltmp[origa] = Num128(0)
+    a = origa
+    for k in xrange(8):
+      if a&1:
+        tmpval,rm = Num128(0, b).shrrm(63-k)
+        fasttbltmp[origa] = fasttbltmp[origa].xor(tmpval)
+      a >>= 1
+  return fasttbltmp
+
+def clmul64invfast(a,fasttbltmp):
+  reslo = 0
+  reshi = 0
+  for k in xrange(8):
+    tmpval,rm = fasttbltmp[a&0xFF].shlcarry(8*k)
+    reslo ^= tmpval.hi
+    reshi ^= tmpval.lo
+    a >>= 8
+  return reshi, reslo
+
 def clmul64inv(a,b):
   reslo = 0
   reshi = 0
@@ -53,6 +76,27 @@ def clmul64inv(a,b):
       #reshi ^= (b<<64)>>(k) & ((1<<64)-1)
     a >>= 1
   return reshi, reslo
+
+def clmul64invfast_unit():
+  for k in xrange(1000):
+    a = random.randrange(1<<64)
+    b = random.randrange(1<<64)
+    assert clmul64inv(a,b) == clmul64invfast(a, clmul64ctx(b))
+
+def clmul64invfast_speed():
+  b = random.randrange(1<<64)
+  ctx = clmul64ctx(b)
+  t1 = time.time()
+  for k in xrange(1000):
+    a = random.randrange(1<<64)
+    assert clmul64inv(a,b)
+  t2 = time.time()
+  for k in xrange(1000):
+    a = random.randrange(1<<64)
+    assert clmul64invfast(a,ctx)
+  t3 = time.time()
+  print "fast", t3-t2
+  print "slow", t2-t1
 
 class Num128(object):
   @staticmethod
@@ -514,3 +558,8 @@ if __name__ == '__main__':
     unit()
     t4 = time.time()
     print (t4-t3)*1e3, "msec for unit test"
+    t3 = time.time()
+    clmul64invfast_unit()
+    t4 = time.time()
+    print (t4-t3)*1e3, "msec for clmul64invfast_unit test"
+    clmul64invfast_speed()
